@@ -36,6 +36,8 @@ app.listen(PORT, () => {
 
 // Routes
 
+// ---------- Pokémon Routes ----------
+
 // Fetch all Pokémon
 app.get("/pokemon", async (req, res) => {
   const query = `
@@ -106,38 +108,6 @@ app.get("/pokemon/:id", async (req, res) => {
   }
 });
 
-// Fetch all types
-app.get("/types", async (req, res) => {
-  const query = "SELECT id, name, color FROM types";
-  try {
-    const result = await pool.query(query);
-    res.json(result.rows);
-  } catch (err) {
-    console.error("Error fetching types:", err);
-    res.status(500).send({ error: "Internal server error" });
-  }
-});
-
-// Fetch type details by ID
-app.get("/types/:id", async (req, res) => {
-  const { id } = req.params;
-  const query = `
-    SELECT t.name, te.attacking_type_id, te.defending_type_id, te.effectiveness
-    FROM types t
-    JOIN type_effectiveness te
-      ON t.id = te.attacking_type_id
-      OR t.id = te.defending_type_id
-    WHERE t.id = $1;
-  `;
-  try {
-    const result = await pool.query(query, [id]);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(`Error fetching type with ID ${id}:`, err);
-    res.status(500).send({ error: "Internal server error" });
-  }
-});
-
 // Add a new Pokémon
 app.post("/pokemon", async (req, res) => {
   const { pokemon_name, height, weight, species_id, stats, moves, type } =
@@ -203,25 +173,249 @@ app.post("/pokemon", async (req, res) => {
   }
 });
 
-// Delete Pokémon by ID
+// Update Pokémon
+app.put("/pokemon", async (req, res) => {
+  const { id, name, species_id, moves, type, height, weight, stats } = req.body;
+  if (!id) return res.status(400).send({ error: "ID is required" });
+
+  try {
+    await pool.query("BEGIN");
+
+    // Update Pokémon details
+    const pokemonQuery = `
+      UPDATE pokemon
+      SET name = $1, species_id = $2, height = $3, weight = $4
+      WHERE id = $5;
+    `;
+    await pool.query(pokemonQuery, [name, species_id, height, weight, id]);
+
+    // Update moves
+    if (moves) {
+      await pool.query("DELETE FROM pokemon_moves WHERE pokemon_id = $1;", [id]);
+      const moveQueries = moves.map((moveId) =>
+        pool.query(
+          "INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);",
+          [id, moveId]
+        )
+      );
+      await Promise.all(moveQueries);
+    }
+
+    // Update types
+    if (type) {
+      await pool.query("DELETE FROM pokemon_types WHERE pokemon_id = $1;", [id]);
+      const typeQueries = type.map((typeId) =>
+        pool.query(
+          "INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);",
+          [id, typeId]
+        )
+      );
+      await Promise.all(typeQueries);
+    }
+
+    // Update stats
+    if (stats) {
+      const statsQuery = `
+        UPDATE pokemon_base_stats
+        SET hp = $1, attack = $2, defense = $3, special_attack = $4, special_defense = $5, speed = $6
+        WHERE pokemon_id = $7;
+      `;
+      await pool.query(statsQuery, [
+        stats.hp,
+        stats.attack,
+        stats.defense,
+        stats.special_attack,
+        stats.special_defense,
+        stats.speed,
+        id,
+      ]);
+    }
+
+    await pool.query("COMMIT");
+    res.status(200).send({ message: "Pokémon updated successfully!" });
+  } catch (err) {
+    await pool.query("ROLLBACK");
+    console.error("Error updating Pokémon:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Delete Pokémon
 app.delete("/pokemon/:id", async (req, res) => {
   const { id } = req.params;
   try {
     await pool.query("BEGIN");
-
-    await pool.query("DELETE FROM pokemon_moves WHERE pokemon_id = $1", [id]);
-    await pool.query("DELETE FROM pokemon_types WHERE pokemon_id = $1", [id]);
-    await pool.query("DELETE FROM pokemon_base_stats WHERE pokemon_id = $1", [
+    await pool.query("DELETE FROM pokemon_moves WHERE pokemon_id = $1;", [id]);
+    await pool.query("DELETE FROM pokemon_types WHERE pokemon_id = $1;", [id]);
+    await pool.query("DELETE FROM pokemon_base_stats WHERE pokemon_id = $1;", [
       id,
     ]);
-    await pool.query("DELETE FROM pokemon WHERE id = $1", [id]);
-
+    await pool.query("DELETE FROM pokemon WHERE id = $1;", [id]);
     await pool.query("COMMIT");
-
-    res.json({ message: "Pokémon deleted successfully!" });
+    res.status(200).send({ message: "Pokémon deleted successfully!" });
   } catch (err) {
     await pool.query("ROLLBACK");
-    console.error(`Error deleting Pokémon with ID ${id}:`, err);
+    console.error("Error deleting Pokémon:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// ---------- Moves Routes ----------
+
+// Fetch all moves
+app.get("/moves", async (req, res) => {
+  const query = "SELECT id, name FROM moves";
+  try {
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching moves:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Fetch move details by ID
+app.get("/moves/:id", async (req, res) => {
+  const { id } = req.params;
+  const query = `
+    SELECT m.id, m.name AS move_name, t.name AS type_name, m.power, m.accuracy, m.power_point
+    FROM moves m
+    JOIN types t ON m.types_id = t.id
+    WHERE m.id = $1;
+  `;
+  try {
+    const result = await pool.query(query, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(`Error fetching move with ID ${id}:`, err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Add a new move
+app.post("/moves", async (req, res) => {
+  const { name, types_id, power, accuracy, power_point } = req.body;
+  const query = `
+    INSERT INTO moves (name, types_id, power, accuracy, power_point)
+    VALUES ($1, $2, $3, $4, $5);
+  `;
+  try {
+    await pool.query(query, [name, types_id, power, accuracy, power_point]);
+    res.status(201).send({ message: "Move added successfully!" });
+  } catch (err) {
+    console.error("Error adding move:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Update move
+app.put("/moves/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, types_id, power, accuracy, power_point } = req.body;
+  const query = `
+    UPDATE moves
+    SET name = $1, types_id = $2, power = $3, accuracy = $4, power_point = $5
+    WHERE id = $6;
+  `;
+  try {
+    await pool.query(query, [name, types_id, power, accuracy, power_point, id]);
+    res.status(200).send({ message: "Move updated successfully!" });
+  } catch (err) {
+    console.error("Error updating move:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Delete move
+app.delete("/moves/:id", async (req, res) => {
+  const { id } = req.params;
+  const query = "DELETE FROM moves WHERE id = $1;";
+  try {
+    await pool.query(query, [id]);
+    res.status(200).send({ message: "Move deleted successfully!" });
+  } catch (err) {
+    console.error("Error deleting move:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// ---------- Types Routes ----------
+
+// Fetch all types
+app.get("/types", async (req, res) => {
+  const query = "SELECT id, name, color FROM types";
+  try {
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching types:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Fetch type details by ID
+app.get("/types/:id", async (req, res) => {
+  const { id } = req.params;
+  const query = `
+    SELECT t.name, te.attacking_type_id, te.defending_type_id, te.effectiveness
+    FROM types t
+    JOIN type_effectiveness te
+      ON t.id = te.attacking_type_id
+      OR t.id = te.defending_type_id
+    WHERE t.id = $1;
+  `;
+  try {
+    const result = await pool.query(query, [id]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(`Error fetching type with ID ${id}:`, err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Add a new type
+app.post("/types", async (req, res) => {
+  const { name, color } = req.body;
+  const query = `
+    INSERT INTO types (name, color)
+    VALUES ($1, $2);
+  `;
+  try {
+    await pool.query(query, [name, color]);
+    res.status(201).send({ message: "Type added successfully!" });
+  } catch (err) {
+    console.error("Error adding type:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Update type
+app.put("/types/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, color } = req.body;
+  const query = `
+    UPDATE types
+    SET name = $1, color = $2
+    WHERE id = $3;
+  `;
+  try {
+    await pool.query(query, [name, color, id]);
+    res.status(200).send({ message: "Type updated successfully!" });
+  } catch (err) {
+    console.error("Error updating type:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Delete type
+app.delete("/types/:id", async (req, res) => {
+  const { id } = req.params;
+  const query = "DELETE FROM types WHERE id = $1;";
+  try {
+    await pool.query(query, [id]);
+    res.status(200).send({ message: "Type deleted successfully!" });
+  } catch (err) {
+    console.error("Error deleting type:", err);
     res.status(500).send({ error: "Internal server error" });
   }
 });
