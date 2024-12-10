@@ -110,11 +110,13 @@ app.get("/pokemon/:id", async (req, res) => {
 
 // Add a new Pokémon
 app.post("/pokemon", async (req, res) => {
-  const { pokemon_name, height, weight, species_id, stats, moves, type } =
-    req.body;
+  const { pokemon_name, height, weight, species_id, stats, moves, type } = req.body;
 
   try {
+    console.log("Received payload:", req.body);
+
     await pool.query("BEGIN");
+    console.log("Transaction started");
 
     // Insert Pokémon
     const pokemonQuery = `
@@ -128,8 +130,12 @@ app.post("/pokemon", async (req, res) => {
       weight,
       species_id,
     ]);
+    console.log("Inserted Pokémon:", pokemonResult.rows);
+
     const pokemonId = pokemonResult.rows[0].id;
-    const pokemonName = pokemonResult.rows[0].name;
+
+    // Log stats
+    console.log("Stats:", stats);
 
     // Insert base stats
     const statsQuery = `
@@ -145,6 +151,11 @@ app.post("/pokemon", async (req, res) => {
       stats.special_defense,
       stats.speed,
     ]);
+    console.log("Inserted stats for Pokémon ID:", pokemonId);
+
+    // Log moves and types
+    console.log("Moves:", moves);
+    console.log("Types:", type);
 
     // Insert moves
     const moveQueries = moves.map((moveId) =>
@@ -164,36 +175,10 @@ app.post("/pokemon", async (req, res) => {
     );
     await Promise.all(typeQueries);
 
-    // Fetch the full Pokémon details to match the response structure
-    const responseQuery = `
-      SELECT 
-        p.id,
-        p.name,
-        s.name AS species,
-        array_agg(DISTINCT jsonb_build_object('id', m.id, 'name', m.name)) AS moves,
-        array_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name)) AS type,
-        pb.hp, 
-        pb.attack, 
-        pb.defense, 
-        pb.special_attack, 
-        pb.special_defense, 
-        pb.speed
-      FROM pokemon p
-      JOIN pokemon_base_stats pb ON p.id = pb.pokemon_id
-      JOIN species s ON p.species_id = s.id
-      LEFT JOIN pokemon_moves pm ON p.id = pm.pokemon_id
-      LEFT JOIN moves m ON pm.move_id = m.id
-      LEFT JOIN pokemon_types pt ON p.id = pt.pokemon_id
-      LEFT JOIN types t ON pt.type_id = t.id
-      WHERE p.id = $1
-      GROUP BY p.id, s.name, pb.hp, pb.attack, pb.defense, pb.special_attack, pb.special_defense, pb.speed;
-    `;
-    const responseResult = await pool.query(responseQuery, [pokemonId]);
-
     await pool.query("COMMIT");
+    console.log("Transaction committed successfully");
 
-    // Return the full Pokémon details
-    res.json(responseResult.rows);
+    res.status(201).json({ message: "Pokémon added successfully!" });
   } catch (err) {
     await pool.query("ROLLBACK");
     console.error("Error adding Pokémon:", err);
