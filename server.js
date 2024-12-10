@@ -120,7 +120,7 @@ app.post("/pokemon", async (req, res) => {
     const pokemonQuery = `
       INSERT INTO pokemon (name, height, weight, species_id)
       VALUES ($1, $2, $3, $4)
-      RETURNING id;
+      RETURNING id, name;
     `;
     const pokemonResult = await pool.query(pokemonQuery, [
       pokemon_name,
@@ -129,6 +129,7 @@ app.post("/pokemon", async (req, res) => {
       species_id,
     ]);
     const pokemonId = pokemonResult.rows[0].id;
+    const pokemonName = pokemonResult.rows[0].name;
 
     // Insert base stats
     const statsQuery = `
@@ -163,9 +164,36 @@ app.post("/pokemon", async (req, res) => {
     );
     await Promise.all(typeQueries);
 
+    // Fetch the full Pokémon details to match the response structure
+    const responseQuery = `
+      SELECT 
+        p.id,
+        p.name,
+        s.name AS species,
+        array_agg(DISTINCT jsonb_build_object('id', m.id, 'name', m.name)) AS moves,
+        array_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name)) AS type,
+        pb.hp, 
+        pb.attack, 
+        pb.defense, 
+        pb.special_attack, 
+        pb.special_defense, 
+        pb.speed
+      FROM pokemon p
+      JOIN pokemon_base_stats pb ON p.id = pb.pokemon_id
+      JOIN species s ON p.species_id = s.id
+      LEFT JOIN pokemon_moves pm ON p.id = pm.pokemon_id
+      LEFT JOIN moves m ON pm.move_id = m.id
+      LEFT JOIN pokemon_types pt ON p.id = pt.pokemon_id
+      LEFT JOIN types t ON pt.type_id = t.id
+      WHERE p.id = $1
+      GROUP BY p.id, s.name, pb.hp, pb.attack, pb.defense, pb.special_attack, pb.special_defense, pb.speed;
+    `;
+    const responseResult = await pool.query(responseQuery, [pokemonId]);
+
     await pool.query("COMMIT");
 
-    res.json({ message: "Pokémon added successfully!" });
+    // Return the full Pokémon details
+    res.json(responseResult.rows);
   } catch (err) {
     await pool.query("ROLLBACK");
     console.error("Error adding Pokémon:", err);
