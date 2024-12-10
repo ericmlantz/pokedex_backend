@@ -420,4 +420,35 @@ app.delete("/types/:id", async (req, res) => {
   }
 });
 
+// ---------- Species Routes ----------
+
+// Fetch all species
+app.get("/species", async (req, res) => {
+  const query = "SELECT id, name FROM species ORDER BY id;";
+  try {
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching species:", err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
+// Fetch species by ID
+app.get("/species/:id", async (req, res) => {
+  const { id } = req.params;
+  const query = "SELECT id, name FROM species WHERE id = $1;";
+  try {
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
+      res.status(404).send({ error: "Species not found" });
+    } else {
+      res.json(result.rows[0]);
+    }
+  } catch (err) {
+    console.error(`Error fetching species with ID ${id}:`, err);
+    res.status(500).send({ error: "Internal server error" });
+  }
+});
+
 module.exports = app;
