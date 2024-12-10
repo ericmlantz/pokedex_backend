@@ -110,7 +110,7 @@ app.get("/pokemon/:id", async (req, res) => {
 
 // Add a new Pokémon
 app.post("/pokemon", async (req, res) => {
-  const { pokemon_name, height, weight, species_id, stats, moves, type } = req.body;
+  const { name, height, weight, species_id, stats, moves, type } = req.body;
 
   try {
     console.log("Received payload:", req.body);
@@ -125,7 +125,7 @@ app.post("/pokemon", async (req, res) => {
       RETURNING id, name;
     `;
     const pokemonResult = await pool.query(pokemonQuery, [
-      pokemon_name,
+      name,
       height,
       weight,
       species_id,
