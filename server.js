@@ -108,77 +108,10 @@ app.get('/pokemon/:id', async (req, res) => {
   }
 })
 
+
+
 // Add a new Pokémon
-app.post("/pokemon", async (req, res) => {
-  try {
-    // Access the nested 'pokemon' key in the payload
-    const pokemon = req.body.pokemon;
-    if (!pokemon) {
-      return res.status(400).json({ error: "Payload must include a 'pokemon' object." });
-    }
 
-    const stats = pokemon.stats;
-    const moves = pokemon.moves;
-    const types = pokemon.type;
-
-    await pool.query("BEGIN"); // Start a transaction
-
-    // Insert details into the Pokémon table and return the new row
-    const pokemonQuery = `
-      INSERT INTO POKEMON (name, height, weight, species_id)
-      VALUES ($1::text, $2::integer, $3::integer, $4::integer)
-      RETURNING *;
-    `;
-    const pokemonResult = await pool.query(pokemonQuery, [
-      pokemon.name,
-      parseInt(pokemon.height),
-      parseInt(pokemon.weight),
-      parseInt(pokemon.species_id),
-    ]);
-
-    const pokemonRow = pokemonResult.rows[0]; // Recently inserted Pokémon
-
-    // Insert details into the Pokémon base stats table
-    const baseStatsQuery = `
-      INSERT INTO POKEMON_BASE_STATS (pokemon_id, hp, attack, defense, special_attack, special_defense, speed)
-      VALUES ($1::smallint, $2::smallint, $3::smallint, $4::smallint, $5::smallint, $6::smallint, $7::smallint);
-    `;
-    await pool.query(baseStatsQuery, [
-      pokemonRow.id,
-      stats.hp,
-      stats.attack,
-      stats.defense,
-      stats.special_attack,
-      stats.special_defense,
-      stats.speed,
-    ]);
-
-    // Insert details into the Pokémon moves table
-    const moveQueries = moves.map((id) =>
-      pool.query(
-        "INSERT INTO POKEMON_MOVES (pokemon_id, move_id) VALUES ($1::integer, $2::integer);",
-        [pokemonRow.id, id]
-      )
-    );
-    await Promise.all(moveQueries);
-
-    // Insert details into the Pokémon types table
-    const typeQueries = types.map((id) =>
-      pool.query(
-        "INSERT INTO POKEMON_TYPES (pokemon_id, type_id) VALUES ($1::integer, $2::integer);",
-        [pokemonRow.id, id]
-      )
-    );
-    await Promise.all(typeQueries);
-
-    await pool.query("COMMIT"); // Commit the transaction
-    res.status(201).json({ message: "Pokemon added successfully!" });
-  } catch (error) {
-    await pool.query("ROLLBACK"); // Rollback the transaction in case of an error
-    console.error("Error adding Pokémon:", error);
-    res.status(400).json({ error: "Details provided in incorrect format" });
-  }
-});
 
 // Update Pokémon
 app.put('/pokemon', async (req, res) => {
