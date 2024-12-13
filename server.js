@@ -1,12 +1,13 @@
 'use strict'
 
-const { Pool } = require('pg')
-const express = require('express')
-const cors = require('cors')
-require('dotenv').config()
+const { Pool } = require('pg');
+const express = require('express');
+const cors = require('cors');
+require('dotenv').config();
 const multer = require('multer');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const upload = multer({ dest: 'uploads/' });
+const fs = require('fs'); // Import the fs module
+const path = require('path');
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
