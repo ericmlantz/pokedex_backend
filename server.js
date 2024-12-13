@@ -4,6 +4,11 @@ const { Pool } = require('pg')
 const express = require('express')
 const cors = require('cors')
 require('dotenv').config()
+const multer = require('multer');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const upload = multer({ dest: 'uploads/' });
+
+const s3 = new S3Client({ region: process.env.AWS_REGION });
 
 const app = express()
 const PORT = process.env.SERVER_PORT || 5000
@@ -108,67 +113,143 @@ app.get('/pokemon/:id', async (req, res) => {
 })
 
 // Add a new Pokémon
-app.post('/pokemon', async (req, res) => {
-  const pokemon = req.body.pokemons[0]
-  const stats = pokemon.stats
-  const moves = pokemon.moves
-  const types = pokemon.type
-
+app.post('/pokemon', upload.single('image'), async (req, res) => {
   try {
-    const client = await pool.connect()
-    await client.query('BEGIN')
+    const pokemon = JSON.parse(req.body.pokemon); // Parse the Pokémon JSON string from the form data
+    const stats = pokemon.stats;
+    const moves = pokemon.moves;
+    const types = pokemon.type;
 
-    const insertPokemonQuery = `
-      INSERT INTO pokemon (name, height, weight, species_id)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id;
-    `
-    const pokemonResult = await client.query(insertPokemonQuery, [
-      pokemon.name,
-      pokemon.height,
-      pokemon.weight,
-      pokemon.species_id
-    ])
-    const pokemonId = pokemonResult.rows[0].id
+    const file = req.file;
+    let imageUrl = null;
 
-    const insertStatsQuery = `
-      INSERT INTO pokemon_base_stats (pokemon_id, hp, attack, defense, special_attack, special_defense, speed)
-      VALUES ($1, $2, $3, $4, $5, $6, $7);
-    `
-    await client.query(insertStatsQuery, [
-      pokemonId,
-      stats.hp,
-      stats.attack,
-      stats.defense,
-      stats.special_attack,
-      stats.special_defense,
-      stats.speed
-    ])
+    if (file) {
+      // Read the uploaded file
+      const fileStream = fs.createReadStream(file.path);
 
+      // Define S3 upload parameters
+      const uploadParams = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: `pokemon-images/${file.originalname}`, // Save in "pokemon-images" folder
+        Body: fileStream,
+        ContentType: file.mimetype,
+      };
+
+      // Upload image to S3
+      try {
+        await s3.send(new PutObjectCommand(uploadParams));
+        fs.unlinkSync(file.path); // Remove the file from local storage
+        imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.amazonaws.com/pokemon-images/${file.originalname}`;
+      } catch (err) {
+        console.error('Error uploading image:', err);
+        return res.status(500).send('Error uploading image.');
+      }
+    }
+
+    const client = new Client(clientConfig);
+    await client.connect(); // Connect to database
+
+    // Insert Pokémon data
+    const pokemonQuery = await client.query(
+      "INSERT INTO pokemon(name, height, weight, species_id, image_url) VALUES ($1, $2, $3, $4, $5) RETURNING id;",
+      [pokemon.name, pokemon.height, pokemon.weight, pokemon.species_id, imageUrl]
+    );
+
+    const pokemonId = pokemonQuery.rows[0].id;
+
+    // Insert Pokémon base stats
+    await client.query(
+      "INSERT INTO pokemon_base_stats(pokemon_id, hp, attack, defense, special_attack, special_defense, speed) VALUES ($1, $2, $3, $4, $5, $6, $7);",
+      [pokemonId, stats.hp, stats.attack, stats.defense, stats.special_attack, stats.special_defense, stats.speed]
+    );
+
+    // Insert Pokémon moves
     for (const moveId of moves) {
       await client.query(
-        'INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);',
+        "INSERT INTO pokemon_moves(pokemon_id, move_id) VALUES ($1, $2);",
         [pokemonId, moveId]
-      )
+      );
     }
 
+    // Insert Pokémon types
     for (const typeId of types) {
       await client.query(
-        'INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);',
+        "INSERT INTO pokemon_types(pokemon_id, type_id) VALUES ($1, $2);",
         [pokemonId, typeId]
-      )
+      );
     }
 
-    await client.query('COMMIT')
-    res.status(201).json({ message: 'Pokemon added successfully!' })
+    await client.end(); // Close the database connection
+
+    res.status(201).json({ message: 'Pokémon and image added successfully!' });
   } catch (err) {
-    await client.query('ROLLBACK')
-    console.error('Error adding Pokémon:', err)
-    res.status(500).json({ error: 'Internal server error' })
-  } finally {
-    pool.release()
+    console.error('Error adding Pokémon:', err);
+    res.status(500).send({ error: 'Internal server error.' });
   }
-})
+});
+
+
+// app.post('/pokemon', async (req, res) => {
+//   const pokemon = req.body.pokemons[0]
+//   const stats = pokemon.stats
+//   const moves = pokemon.moves
+//   const types = pokemon.type
+
+//   try {
+//     const client = await pool.connect()
+//     await client.query('BEGIN')
+
+//     const insertPokemonQuery = `
+//       INSERT INTO pokemon (name, height, weight, species_id)
+//       VALUES ($1, $2, $3, $4)
+//       RETURNING id;
+//     `
+//     const pokemonResult = await client.query(insertPokemonQuery, [
+//       pokemon.name,
+//       pokemon.height,
+//       pokemon.weight,
+//       pokemon.species_id
+//     ])
+//     const pokemonId = pokemonResult.rows[0].id
+
+//     const insertStatsQuery = `
+//       INSERT INTO pokemon_base_stats (pokemon_id, hp, attack, defense, special_attack, special_defense, speed)
+//       VALUES ($1, $2, $3, $4, $5, $6, $7);
+//     `
+//     await client.query(insertStatsQuery, [
+//       pokemonId,
+//       stats.hp,
+//       stats.attack,
+//       stats.defense,
+//       stats.special_attack,
+//       stats.special_defense,
+//       stats.speed
+//     ])
+
+//     for (const moveId of moves) {
+//       await client.query(
+//         'INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);',
+//         [pokemonId, moveId]
+//       )
+//     }
+
+//     for (const typeId of types) {
+//       await client.query(
+//         'INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);',
+//         [pokemonId, typeId]
+//       )
+//     }
+
+//     await client.query('COMMIT')
+//     res.status(201).json({ message: 'Pokemon added successfully!' })
+//   } catch (err) {
+//     await client.query('ROLLBACK')
+//     console.error('Error adding Pokémon:', err)
+//     res.status(500).json({ error: 'Internal server error' })
+//   } finally {
+//     pool.release()
+//   }
+// })
 
 // Update Pokémon
 app.put('/pokemon/:id', async (req, res) => {
@@ -706,5 +787,7 @@ app.delete('/natures/:id', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' })
   }
 })
+
+// ---------- Image Routes ----------
 
 module.exports = app
