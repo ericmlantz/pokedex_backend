@@ -10,7 +10,9 @@ const upload = multer({ dest: 'uploads/' });
 const fs = require('fs');
 const path = require('path');
 
-const s3 = new S3Client({ region: process.env.AWS_REGION });
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-1', // Fallback to default if not set
+});
 
 const app = express()
 const PORT = process.env.SERVER_PORT || 5000
