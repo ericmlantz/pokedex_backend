@@ -58,6 +58,7 @@ app.get('/pokemon', async (req, res) => {
   const query = `
     SELECT DISTINCT
       p.id, p.name, s.name AS species,
+      p.image_url, -- Added image_url here
       array_agg(DISTINCT jsonb_build_object('id', m.id, 'name', m.name)) AS moves,
       array_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name, 'color', t.color)) AS type,
       pb.hp, pb.attack, pb.defense, pb.special_attack, pb.special_defense, pb.speed
@@ -70,22 +71,23 @@ app.get('/pokemon', async (req, res) => {
     JOIN pokemon_base_stats pb ON pb.pokemon_id = p.id
     GROUP BY p.id, s.name, pb.hp, pb.attack, pb.defense, pb.special_attack, pb.special_defense, pb.speed
     ORDER BY p.id;
-  `
+  `;
   try {
-    const rows = await executeQuery(query)
-    res.json(rows)
+    const rows = await executeQuery(query);
+    res.json(rows);
   } catch (err) {
-    console.error('Error fetching Pokémon:', err)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error('Error fetching Pokémon:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 // Fetch Pokémon by ID
 app.get('/pokemon/:id', async (req, res) => {
-  const { id } = req.params
+  const { id } = req.params;
   const query = `
     SELECT DISTINCT
       p.id, p.name, s.name AS species,
+      p.image_url, -- Added image_url here
       array_agg(DISTINCT jsonb_build_object('id', m.id, 'name', m.name)) AS moves,
       array_agg(DISTINCT jsonb_build_object('id', t.id, 'name', t.name, 'color', t.color)) AS type,
       pb.hp, pb.attack, pb.defense, pb.special_attack, pb.special_defense, pb.speed
@@ -99,18 +101,18 @@ app.get('/pokemon/:id', async (req, res) => {
     WHERE p.id = $1
     GROUP BY p.id, s.name, pb.hp, pb.attack, pb.defense, pb.special_attack, pb.special_defense, pb.speed
     ORDER BY p.id;
-  `
+  `;
   try {
-    const rows = await executeQuery(query, [id])
+    const rows = await executeQuery(query, [id]);
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'Pokémon not found' })
+      return res.status(404).json({ error: 'Pokémon not found' });
     }
-    res.json(rows[0])
+    res.json(rows[0]);
   } catch (err) {
-    console.error(`Error fetching Pokémon with ID (${id}):`, err)
-    res.status(500).json({ error: 'Internal server error' })
+    console.error(`Error fetching Pokémon with ID (${id}):`, err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-})
+});
 
 // Add a new Pokémon
 app.post('/pokemon', upload.single('image'), async (req, res) => {
@@ -219,37 +221,59 @@ app.post('/pokemon', upload.single('image'), async (req, res) => {
 });
 
 // Update Pokémon
-app.put('/pokemon/:id', async (req, res) => {
-  const { id } = req.params
-  const { name, species_id, moves, type, height, weight, stats } = req.body
+app.put('/pokemon/:id', upload.single('image'), async (req, res) => {
+  const { id } = req.params;
+  const { name, species_id, moves, type, height, weight, stats } = req.body;
+  const client = await pool.connect();
+  let imageUrl = null;
 
   try {
-    await pool.query('BEGIN')
+    await client.query('BEGIN');
+
+    // Handle image upload if file is provided
+    if (req.file) {
+      const file = req.file;
+      const fileStream = fs.createReadStream(file.path);
+
+      const uploadParams = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: `${file.originalname}`,
+        Body: fileStream,
+        ContentType: file.mimetype,
+      };
+
+      const s3 = new S3Client({ region: process.env.AWS_REGION });
+      await s3.send(new PutObjectCommand(uploadParams));
+
+      imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${file.originalname}`;
+      fs.unlinkSync(file.path); // Remove local file
+    }
 
     const updatePokemonQuery = `
       UPDATE pokemon
-      SET name = $1, species_id = $2, height = $3, weight = $4
-      WHERE id = $5;
-    `
-    await pool.query(updatePokemonQuery, [name, species_id, height, weight, id])
+      SET name = $1, species_id = $2, height = $3, weight = $4, image_url = COALESCE($5, image_url)
+      WHERE id = $6;
+    `;
+    await client.query(updatePokemonQuery, [
+      name,
+      species_id,
+      height,
+      weight,
+      imageUrl,
+      id,
+    ]);
 
     if (moves) {
-      await pool.query('DELETE FROM pokemon_moves WHERE pokemon_id = $1;', [id])
+      await client.query('DELETE FROM pokemon_moves WHERE pokemon_id = $1;', [id]);
       for (const moveId of moves) {
-        await pool.query(
-          'INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);',
-          [id, moveId]
-        )
+        await client.query('INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);', [id, moveId]);
       }
     }
 
     if (type) {
-      await pool.query('DELETE FROM pokemon_types WHERE pokemon_id = $1;', [id])
+      await client.query('DELETE FROM pokemon_types WHERE pokemon_id = $1;', [id]);
       for (const typeId of type) {
-        await pool.query(
-          'INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);',
-          [id, typeId]
-        )
+        await client.query('INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);', [id, typeId]);
       }
     }
 
@@ -258,26 +282,28 @@ app.put('/pokemon/:id', async (req, res) => {
         UPDATE pokemon_base_stats
         SET hp = $1, attack = $2, defense = $3, special_attack = $4, special_defense = $5, speed = $6
         WHERE pokemon_id = $7;
-      `
-      await pool.query(updateStatsQuery, [
+      `;
+      await client.query(updateStatsQuery, [
         stats.hp,
         stats.attack,
         stats.defense,
         stats.special_attack,
         stats.special_defense,
         stats.speed,
-        id
-      ])
+        id,
+      ]);
     }
 
-    await pool.query('COMMIT')
-    res.status(200).json({ message: 'Pokémon updated successfully!' })
+    await client.query('COMMIT');
+    res.status(200).json({ message: 'Pokémon updated successfully!' });
   } catch (err) {
-    await pool.query('ROLLBACK')
-    console.error('Error updating Pokémon:', err)
-    res.status(500).json({ error: 'Internal server error' })
+    await client.query('ROLLBACK');
+    console.error('Error updating Pokémon:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    client.release();
   }
-})
+});
 
 // Delete Pokémon by ID
 app.delete('/pokemon/:id', async (req, res) => {
