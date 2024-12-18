@@ -114,93 +114,109 @@ app.get('/pokemon/:id', async (req, res) => {
 
 // Add a new Pokémon
 app.post('/pokemon', upload.single('image'), async (req, res) => {
-  const pokemon = JSON.parse(req.body.pokemons)[0] // Parse JSON string from form data
-  const stats = pokemon.stats
-  const moves = pokemon.moves
-  const types = pokemon.type
+  const pokemonData = req.body.pokemons;
 
-  const client = await pool.connect()
+  // Validate that pokemons is provided and parse it
+  if (!pokemonData) {
+      return res.status(400).json({ error: 'Pokémon data is required.' });
+  }
+
+  let pokemon;
+  try {
+      pokemon = JSON.parse(pokemonData)[0]; // Parse JSON string
+  } catch (error) {
+      return res.status(400).json({ error: 'Invalid JSON format in Pokémon data.' });
+  }
+
+  const { name, species_id, height, weight, type, moves, stats } = pokemon;
+
+  // Database connection and query setup
+  const client = await pool.connect();
 
   try {
-    await client.query('BEGIN')
+      await client.query('BEGIN'); // Begin transaction
 
-    let imageUrl = null
+      // Handle image upload if file is provided
+      let imageUrl = null;
+      if (req.file) {
+          const file = req.file;
+          const fileStream = fs.createReadStream(file.path);
 
-    if (req.file) {
-      const file = req.file
-      const fileStream = fs.createReadStream(file.path)
+          const uploadParams = {
+              Bucket: process.env.AWS_BUCKET_NAME,
+              Key: `${file.originalname}`,
+              Body: fileStream,
+              ContentType: file.mimetype,
+          };
 
-      const uploadParams = {
-        Bucket: process.env.AWS_BUCKET_NAME,
-        Key: `${file.originalname}`,
-        Body: fileStream,
-        ContentType: file.mimetype
+          // Upload image to S3
+          const s3 = new S3Client({ region: process.env.AWS_REGION });
+          await s3.send(new PutObjectCommand(uploadParams));
+
+          // Construct S3 URL
+          imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${file.originalname}`;
+
+          // Remove file from local filesystem
+          fs.unlinkSync(file.path);
       }
 
-      // Upload the image to S3
-      const s3 = new S3Client({ region: process.env.AWS_REGION })
-      await s3.send(new PutObjectCommand(uploadParams))
+      // Insert into Pokémon table
+      const insertPokemonQuery = `
+          INSERT INTO pokemon (name, height, weight, species_id, image)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id;
+      `;
+      const pokemonResult = await client.query(insertPokemonQuery, [
+          name,
+          height,
+          weight,
+          species_id,
+          imageUrl, // Use the S3 URL
+      ]);
 
-      // Construct the S3 URL
-      imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${file.originalname}`
+      const pokemonId = pokemonResult.rows[0].id;
 
-      // Remove the file from the local filesystem
-      fs.unlinkSync(file.path)
-    }
+      // Insert into Pokémon base stats table
+      const insertStatsQuery = `
+          INSERT INTO pokemon_base_stats (pokemon_id, hp, attack, defense, special_attack, special_defense, speed)
+          VALUES ($1, $2, $3, $4, $5, $6, $7);
+      `;
+      await client.query(insertStatsQuery, [
+          pokemonId,
+          stats.hp,
+          stats.attack,
+          stats.defense,
+          stats.special_attack,
+          stats.special_defense,
+          stats.speed,
+      ]);
 
-    const insertPokemonQuery = `
-      INSERT INTO pokemon (name, height, weight, species_id, image)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id;
-    `
-    const pokemonResult = await client.query(insertPokemonQuery, [
-      pokemon.name,
-      pokemon.height,
-      pokemon.weight,
-      pokemon.species_id,
-      imageUrl // Store the S3 URL
-    ])
+      // Insert Pokémon moves
+      for (const moveId of moves) {
+          await client.query(
+              'INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);',
+              [pokemonId, moveId]
+          );
+      }
 
-    const pokemonId = pokemonResult.rows[0].id
+      // Insert Pokémon types
+      for (const typeId of type) {
+          await client.query(
+              'INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);',
+              [pokemonId, typeId]
+          );
+      }
 
-    const insertStatsQuery = `
-      INSERT INTO pokemon_base_stats (pokemon_id, hp, attack, defense, special_attack, special_defense, speed)
-      VALUES ($1, $2, $3, $4, $5, $6, $7);
-    `
-    await client.query(insertStatsQuery, [
-      pokemonId,
-      stats.hp,
-      stats.attack,
-      stats.defense,
-      stats.special_attack,
-      stats.special_defense,
-      stats.speed
-    ])
-
-    for (const moveId of moves) {
-      await client.query(
-        'INSERT INTO pokemon_moves (pokemon_id, move_id) VALUES ($1, $2);',
-        [pokemonId, moveId]
-      )
-    }
-
-    for (const typeId of types) {
-      await client.query(
-        'INSERT INTO pokemon_types (pokemon_id, type_id) VALUES ($1, $2);',
-        [pokemonId, typeId]
-      )
-    }
-
-    await client.query('COMMIT')
-    res.status(201).json({ message: 'Pokemon added successfully!', imageUrl })
+      await client.query('COMMIT'); // Commit transaction
+      res.status(201).json({ message: 'Pokémon added successfully!', imageUrl });
   } catch (err) {
-    await client.query('ROLLBACK')
-    console.error('Error adding Pokémon:', err)
-    res.status(500).json({ error: 'Internal server error' })
+      await client.query('ROLLBACK'); // Rollback on error
+      console.error('Error adding Pokémon:', err);
+      res.status(500).json({ error: 'Internal server error' });
   } finally {
-    client.release()
+      client.release(); // Release client back to pool
   }
-})
+});
 
 // Update Pokémon
 app.put('/pokemon/:id', async (req, res) => {
