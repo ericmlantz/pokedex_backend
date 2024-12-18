@@ -4,6 +4,11 @@ const { Pool } = require('pg')
 const express = require('express')
 const cors = require('cors')
 require('dotenv').config()
+const multer = require('multer');
+const fs = require('fs');
+
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const upload = multer({ dest: 'uploads/' })
 
 const app = express()
 const PORT = process.env.SERVER_PORT || 5000
@@ -108,27 +113,54 @@ app.get('/pokemon/:id', async (req, res) => {
 })
 
 // Add a new Pokémon
-app.post('/pokemon', async (req, res) => {
-  const pokemon = req.body.pokemons[0]
+app.post('/pokemon', upload.single('image'), async (req, res) => {
+  const pokemon = JSON.parse(req.body.pokemons)[0] // Parse JSON string from form data
   const stats = pokemon.stats
   const moves = pokemon.moves
   const types = pokemon.type
 
+  const client = await pool.connect()
+
   try {
-    const client = await pool.connect()
     await client.query('BEGIN')
 
+    let imageUrl = null
+
+    if (req.file) {
+      const file = req.file
+      const fileStream = fs.createReadStream(file.path)
+
+      const uploadParams = {
+        Bucket: process.env.AWS_BUCKET_NAME,
+        Key: `${file.originalname}`,
+        Body: fileStream,
+        ContentType: file.mimetype
+      }
+
+      // Upload the image to S3
+      const s3 = new S3Client({ region: process.env.AWS_REGION })
+      await s3.send(new PutObjectCommand(uploadParams))
+
+      // Construct the S3 URL
+      imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${file.originalname}`
+
+      // Remove the file from the local filesystem
+      fs.unlinkSync(file.path)
+    }
+
     const insertPokemonQuery = `
-      INSERT INTO pokemon (name, height, weight, species_id)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO pokemon (name, height, weight, species_id, image)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING id;
     `
     const pokemonResult = await client.query(insertPokemonQuery, [
       pokemon.name,
       pokemon.height,
       pokemon.weight,
-      pokemon.species_id
+      pokemon.species_id,
+      imageUrl // Store the S3 URL
     ])
+
     const pokemonId = pokemonResult.rows[0].id
 
     const insertStatsQuery = `
@@ -160,13 +192,13 @@ app.post('/pokemon', async (req, res) => {
     }
 
     await client.query('COMMIT')
-    res.status(201).json({ message: 'Pokemon added successfully!' })
+    res.status(201).json({ message: 'Pokemon added successfully!', imageUrl })
   } catch (err) {
     await client.query('ROLLBACK')
     console.error('Error adding Pokémon:', err)
     res.status(500).json({ error: 'Internal server error' })
   } finally {
-    pool.release()
+    client.release()
   }
 })
 
