@@ -162,7 +162,7 @@ app.post('/pokemon', upload.single('image'), async (req, res) => {
 
       // Insert into Pokémon table
       const insertPokemonQuery = `
-          INSERT INTO pokemon (name, height, weight, species_id, image)
+          INSERT INTO pokemon (name, height, weight, species_id, image_url)
           VALUES ($1, $2, $3, $4, $5)
           RETURNING id;
       `;
