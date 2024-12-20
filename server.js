@@ -47,7 +47,7 @@ const uploadAndLinkPokemonImages = async () => {
   // Use the correct path to the image folder
   const imagesFolder = path.resolve(__dirname, 'pokemon_image_folder');
 
-  for (let id = 1; id <= 2; id++) {
+  for (let id = 5; id <= 151; id++) {
     const fileName = `${id}.png`;
     const localFilePath = path.join(imagesFolder, fileName);
 
