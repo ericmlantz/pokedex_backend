@@ -48,7 +48,7 @@ app.listen(PORT, () => {
 //   // Use the correct path to the image folder
 //   const imagesFolder = path.resolve(__dirname, 'pokemon_image_folder');
 
-//   for (let id = 1; id <= 151; id++) {
+//   for (let id = 3; id <= 4; id++) {
 //     const fileName = `${id}.png`;
 //     const localFilePath = path.join(imagesFolder, fileName);
 
