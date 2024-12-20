@@ -43,63 +43,64 @@ app.listen(PORT, () => {
 
 // ---------- Utility Functions ----------
 
-const uploadAndLinkPokemonImages = async () => {
-  // Use the correct path to the image folder
-  const imagesFolder = path.resolve(__dirname, 'pokemon_image_folder');
+// FUNCTIONS TO ADD IMAGES OF FIRST 151 POKEMON IN DATABASE USING S3
+// const uploadAndLinkPokemonImages = async () => {
+//   // Use the correct path to the image folder
+//   const imagesFolder = path.resolve(__dirname, 'pokemon_image_folder');
 
-  for (let id = 5; id <= 151; id++) {
-    const fileName = `${id}.png`;
-    const localFilePath = path.join(imagesFolder, fileName);
+//   for (let id = 1; id <= 151; id++) {
+//     const fileName = `${id}.png`;
+//     const localFilePath = path.join(imagesFolder, fileName);
 
-    if (fs.existsSync(localFilePath)) {
-      try {
-        // Upload to S3
-        const s3Key = `pokemon-images/${fileName}`;
-        const imageUrl = await uploadToS3(localFilePath, s3Key);
+//     if (fs.existsSync(localFilePath)) {
+//       try {
+//         // Upload to S3
+//         const s3Key = `pokemon-images/${fileName}`;
+//         const imageUrl = await uploadToS3(localFilePath, s3Key);
 
-        // Update database
-        const query = `
-          UPDATE pokemon
-          SET image_url = $1
-          WHERE id = $2;
-        `;
-        await executeQuery(query, [imageUrl, id]);
+//         // Update database
+//         const query = `
+//           UPDATE pokemon
+//           SET image_url = $1
+//           WHERE id = $2;
+//         `;
+//         await executeQuery(query, [imageUrl, id]);
 
-        console.log(`Successfully updated Pokémon ID ${id} with image URL.`);
-      } catch (error) {
-        console.error(`Failed to process Pokémon ID ${id}:`, error);
-      }
-    } else {
-      console.warn(`Image not found for Pokémon ID ${id} (${fileName})`);
-    }
-  }
-};
+//         console.log(`Successfully updated Pokémon ID ${id} with image URL.`);
+//       } catch (error) {
+//         console.error(`Failed to process Pokémon ID ${id}:`, error);
+//       }
+//     } else {
+//       console.warn(`Image not found for Pokémon ID ${id} (${fileName})`);
+//     }
+//   }
+// };
 
-// Function to upload images to S3
-const uploadToS3 = async (localFilePath, s3Key) => {
-  const fileStream = fs.createReadStream(localFilePath);
+// // Function to upload images to S3
+// const uploadToS3 = async (localFilePath, s3Key) => {
+//   const fileStream = fs.createReadStream(localFilePath);
 
-  const uploadParams = {
-    Bucket: process.env.AWS_BUCKET_NAME,
-    Key: s3Key,
-    Body: fileStream,
-    ContentType: 'image/png', // Adjust based on your file type
-  };
+//   const uploadParams = {
+//     Bucket: process.env.AWS_BUCKET_NAME,
+//     Key: s3Key,
+//     Body: fileStream,
+//     ContentType: 'image/png', // Adjust based on your file type
+//   };
 
-  try {
-    const s3 = new S3Client({ region: process.env.AWS_REGION });
-    await s3.send(new PutObjectCommand(uploadParams));
-    return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
-  } catch (error) {
-    console.error(`Error uploading ${s3Key} to S3:`, error);
-    throw error;
-  }
-};
+//   try {
+//     const s3 = new S3Client({ region: process.env.AWS_REGION });
+//     await s3.send(new PutObjectCommand(uploadParams));
+//     return `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+//   } catch (error) {
+//     console.error(`Error uploading ${s3Key} to S3:`, error);
+//     throw error;
+//   }
+// };
 
-// Execute the script
-uploadAndLinkPokemonImages()
-  .then(() => console.log('All Pokémon images processed successfully.'))
-  .catch(console.error);
+// // Execute the script
+// uploadAndLinkPokemonImages()
+//   .then(() => console.log('All Pokémon images processed successfully.'))
+//   .catch(console.error);
 
 // Execute Query
 const executeQuery = async (query, values = []) => {
