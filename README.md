@@ -59,4 +59,4 @@ This Pokémon API allows users to interact with a PostgreSQL database containing
 
 ## Frontend GitHub
 The following link will take you to the GitHub respository for the frontend of the pokedex site:
-   - [https://github.com/ericmlantz/pokedex_backend](https://github.com/ericmlantz/pokedex)
+   - [https://github.com/ericmlantz/pokedex](https://github.com/ericmlantz/pokedex)
