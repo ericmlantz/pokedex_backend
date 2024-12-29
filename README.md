@@ -1,6 +1,6 @@
 # Pokedex API
 
-The goal of our team’s project is to build an interactive Pokédex website that provides a user-friendly experience for learning about various Pokémon.
+The goal of this project is to build an interactive Pokédex website that provides a user-friendly experience for learning about various Pokémon.
 This Pokémon API allows users to interact with a PostgreSQL database containing Pokémon data, including details about Pokémon, their moves, types, species, and natures. It also includes functionality for uploading files to AWS S3.
 
 ## Table of Contents
@@ -8,13 +8,14 @@ This Pokémon API allows users to interact with a PostgreSQL database containing
 - [Setup Instructions](#setup-instructions)
 - [Environment Variables](#environment-variables)
 - [Technologies Used](#technologies-used)
+- [Frontend Github](#frontend-github)
 
 ## Setup Instructions
 
 1. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/clivethe14/pokedex_backend.git
+   git clone git@github.com:ericmlantz/pokedex_backend.git
    cd pokedex_backend
    ```
 
@@ -55,3 +56,7 @@ This Pokémon API allows users to interact with a PostgreSQL database containing
 - **AWS S3**
 - **Multer** for file uploads
 - **dotenv** for managing environment variables
+
+## Frontend GitHub
+The following link will take you to the GitHub respository for the frontend of the pokedex site:
+   - [https://github.com/ericmlantz/pokedex_backend](https://github.com/ericmlantz/pokedex)
